@@ -373,9 +373,8 @@ def test_default_setting(
 def test_default_setting_sol_and_dual_accessor(
     model: Model, solver: str, io_api: str, explicit_coordinate_names: bool
 ) -> None:
-    
     def run_one():
-        status, condition = model.solve(
+        status, _ = model.solve(
             solver, io_api=io_api, explicit_coordinate_names=explicit_coordinate_names
         )
         assert status == "ok"
@@ -386,15 +385,17 @@ def test_default_setting_sol_and_dual_accessor(
         # squeeze in dual getter in matrix
         assert len(model.matrices.dual) == model.ncons
         assert model.matrices.dual[0] == model.dual["con0"]
+
     if solver != "xpress":
         run_one()
         return
+
     # Solver is xpress
+
     run_one()
     with patch("xpress.__version__", 9.5):
-        # simulate older xpress version
+        # Test the legacy behaviour for xpress version 9.5
         run_one()
-
 
 
 @pytest.mark.parametrize("solver,io_api,explicit_coordinate_names", params)
