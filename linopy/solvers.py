@@ -1600,7 +1600,7 @@ class Xpress(Solver[None]):
             except Exception as err:
                 logger.info("Unable to save solution file. Raised error: %s", err)
 
-        condition = m.getProbStatusString()
+        condition = m.getAttrib("solstatus")
         termination_condition = CONDITION_MAP.get(condition, condition)
         status = Status.from_termination_condition(termination_condition)
         status.legacy_status = condition
