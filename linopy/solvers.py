@@ -18,11 +18,13 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from collections.abc import Callable, Generator
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import numpy as np
 import pandas as pd
+from packaging.version import Version
 from packaging.version import parse as parse_version
 
 import linopy.io
@@ -42,6 +44,8 @@ if TYPE_CHECKING:
     import gurobipy
 
     from linopy.model import Model
+
+logger = logging.getLogger(__name__)
 
 EnvType = TypeVar("EnvType")
 
@@ -133,12 +137,19 @@ with contextlib.suppress(ModuleNotFoundError):
     available_solvers.append("gurobi")
 
 
-def is_highspy_ok() -> bool:
+def _do_attempt_highspy_import() -> bool:
     # There is a known issue with highspy 1.14.0 on windows that can cause the python interpreter to crash on import
-    if not is_windows:
+
+    hp_version: Version | None = None
+    with contextlib.suppress(PackageNotFoundError):
+        hp_version = parse_version(version("highspy"))
+    if hp_version is None:
+        return False  # Highs is not installed, so no reason to attempt import
+
+    import_is_dangerous = is_windows and hp_version == parse_version("1.14.0")
+    if not import_is_dangerous:
         return True
-    if version("highspy") != "1.14.0":
-        return True
+
     executable = sys.executable
     command = [
         executable,
@@ -151,27 +162,25 @@ def is_highspy_ok() -> bool:
     completed = sub.run(
         command, capture_output=True, text=True, timeout=15, check=False
     )
-    ok = completed.returncode == 0
-    if not ok:
+    safe = completed.returncode == 0
+    if not safe:
         logger.warning(
             "highspy is installed but cannot be imported without crashing the Python interpreter. "
             "This is a known issue with highspy 1.14.0 on Windows. Please downgrade to highspy 1.13.1 or wait for a fix in a future release of highspy."
         )
-    return ok
+    return safe
 
 
-with contextlib.suppress(ModuleNotFoundError):
-    _new_highspy_mps_layout = None
+_new_highspy_mps_layout = None
 
-    highspy_ok = is_highspy_ok()
-
-    if highspy_ok:
+if _do_attempt_highspy_import():
+    with contextlib.suppress(ModuleNotFoundError):
         import highspy
 
         available_solvers.append("highs")
-        from importlib.metadata import version
 
-        if parse_version(version("highspy")) < parse_version("1.7.1"):
+        _highspy_version = parse_version(version("highspy"))
+        if _highspy_version < parse_version("1.7.1"):
             # Fallback if parse_version is not available or version string is invalid
             _new_highspy_mps_layout = False
         else:
@@ -255,7 +264,6 @@ with contextlib.suppress(ModuleNotFoundError):
 
 
 quadratic_solvers = [s for s in QUADRATIC_SOLVERS if s in available_solvers]
-logger = logging.getLogger(__name__)
 
 
 io_structure = dict(
