@@ -56,7 +56,8 @@ IO_APIS = FILE_IO_APIS + ["direct"]
 
 available_solvers = []
 
-which = "where" if os.name == "nt" else "which"
+is_windows = os.name == "nt"
+which = "where" if is_windows else "which"
 
 
 def _run_highs_with_keyboard_interrupt(h: Any) -> None:
@@ -130,18 +131,51 @@ with contextlib.suppress(ModuleNotFoundError):
     import gurobipy
 
     available_solvers.append("gurobi")
+
+
+def is_highspy_ok() -> bool:
+    # There is a known issue with highspy 1.14.0 on windows that can cause the python interpreter to crash on import
+    if not is_windows:
+        return True
+    if version("highspy") != "1.14.0":
+        return True
+    executable = sys.executable
+    command = [
+        executable,
+        "-X",
+        "faulthandler",
+        "-c",
+        "import importlib, sys; importlib.import_module(sys.argv[1]); print('IMPORT_OK')",
+        "highspy",
+    ]
+    completed = sub.run(
+        command, capture_output=True, text=True, timeout=15, check=False
+    )
+    ok = completed.returncode == 0
+    if not ok:
+        logger.warning(
+            "highspy is installed but cannot be imported without crashing the Python interpreter. "
+            "This is a known issue with highspy 1.14.0 on Windows. Please downgrade to highspy 1.13.1 or wait for a fix in a future release of highspy."
+        )
+    return ok
+
+
 with contextlib.suppress(ModuleNotFoundError):
     _new_highspy_mps_layout = None
-    import highspy
 
-    available_solvers.append("highs")
-    from importlib.metadata import version
+    highspy_ok = is_highspy_ok()
 
-    if parse_version(version("highspy")) < parse_version("1.7.1"):
-        # Fallback if parse_version is not available or version string is invalid
-        _new_highspy_mps_layout = False
-    else:
-        _new_highspy_mps_layout = True
+    if highspy_ok:
+        import highspy
+
+        available_solvers.append("highs")
+        from importlib.metadata import version
+
+        if parse_version(version("highspy")) < parse_version("1.7.1"):
+            # Fallback if parse_version is not available or version string is invalid
+            _new_highspy_mps_layout = False
+        else:
+            _new_highspy_mps_layout = True
 
 if sub.run([which, "glpsol"], stdout=sub.DEVNULL, stderr=sub.STDOUT).returncode == 0:
     available_solvers.append("glpk")
